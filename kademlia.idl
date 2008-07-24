@@ -1,0 +1,246 @@
+/**
+    Kademlia is a peer-to-peer distributed hash table. 
+*/
+module kademlia
+{
+    
+    /**
+        \defgroup Constants Globally shared protocol parameters
+    */
+    
+    /**
+        The republish interval is the number of milliseconds after which an hash
+        table entry should be republished, if it has not yet expired.
+    */
+    const unsigned long republish_interval = 60*60*1000;    // 1 hour
+
+    /**
+        The replication factor determines the size of the node buckets and the
+        number of redundant nodes at which hash table entries are published.
+    */
+    const unsigned long replication_factor = 20;
+
+    /**
+        The concurrency factor determines the (maximum) number of parallel
+        requests that should be used when executing look-ups.
+        
+    */
+    const unsigned long concurrency_factor = 3;
+
+
+    /**
+        \defgroup Types Kademlia type definitons
+    */
+    //@{
+        
+    /**
+        An 160-bit opaque identifier,  used to identify nodes and hash table
+        entries. Id's used for Kademlia should be distributed uniformly.
+    */
+    typedef octet id_t[160/8];
+    
+    /**
+        An amount of time measured in milliseconds. The maximum lifetime is
+        equal to 4294967295 milliseconds, which corresponds to nearly 50 days.
+    */
+    typedef unsigned long lifetime_t;
+
+    /**
+        A node reference, consisting of a unique node identifier and a
+        Node object reference at which the node can be contacted.
+    */
+    interface Node;    
+    struct node_ref_t {
+        id_t id;
+        Node ref;
+    };
+    
+    /**
+        A structure describing the value of a hash table entry, consisting
+        of its contents and its lifetime in milliseconds.
+    */    
+    struct value_t {
+        any        contents;
+        lifetime_t lifetime;
+    };
+    
+    /**
+        A structure describing a hash table entry consisting of an index and
+        a value.
+    */
+    struct entry_t {
+        id_t    index;
+        value_t value;
+    };
+
+    /**
+        A sequence of any's.
+    */
+    typedef sequence<any> seq_any_t;
+    
+    /**
+        A sequence of value structures.
+    */
+    typedef sequence<value_t> seq_value_t;
+    
+    /**
+        A sequence of entry structures.
+    */
+    typedef sequence<entry_t> seq_entry_t;
+
+    /**
+        A sequence of node references, with a maximum number of elements equal
+        to the replication factor.
+    */
+    typedef sequence<node_ref_t, replication_factor> seq_node_ref_t;
+
+    //@} group Types
+    
+
+    /**
+        Node objects represent nodes in the Kademlia network. A node is
+        identified by a unique random identifier and has the ability to store
+        and retrieve hash table entries.
+    */
+    interface Node
+    {
+    
+        /**
+            The ping-method, as described by the Kademlia paper. It is used to
+            check if the node is still functional and it can be used to
+            estimate the network latency between this node and the caller.
+            
+            @param caller The caller's node reference
+            @return This node's id.
+        */
+        id_t ping (
+            in node_ref_t caller
+        );
+        
+        /**
+            Instructs the node to store the given hash table entry. Multiple
+            different values can be stored at the same index, but if an entry
+            already exists at the given index with this value's contents it
+            is replaced.
+            
+            @param caller The caller's node reference
+            @param index The index that identifies this entry
+            @param value The value associated with the entry
+        */
+        void store (
+            in node_ref_t caller,
+            in id_t       index,
+            in value_t    value
+        );
+
+        
+        /**
+            Returns all values this node has stored at the given index.
+            
+            @param caller The caller's node reference
+            @param index The target index identifier
+            @return The requested values in an unordered (possibly empty) list.
+        */
+        seq_value_t retrieve (
+            in node_ref_t caller,
+            in id_t       index
+        );
+        
+
+        /**
+            Returns a set of nodes that are closest to the requested node
+            identifier. The return value will contain either a number of nodes
+            equal to the replication factor or the total number of other nodes
+            known to this client; whichever is less.
+
+            The nodes returned are the nodes closest to the target node that
+            this node knows about, based on the XOR-metric between node
+            identifiers. The nodes are returned in an unordered sequence.
+            
+            The node should only return (other) nodes that it considers to be
+            'alive', i.e. that it recently has succesfully communicated with.
+
+            @param caller The caller's node reference
+            @param id The target node identifier
+            @return A set of nodes close to the target node
+        */
+        seq_node_ref_t find_nodes (
+            in node_ref_t caller,
+            in id_t       target
+        );
+        
+
+        /**
+            The number of seconds elapsed since this node first came available.
+            
+            This is an optional attribute; if an implementation chooses not to
+            provide it, it should throw a CORBA::NO_IMPLEMENT exception.
+        */
+        readonly attribute unsigned long age;
+        
+        /**
+            The nodes in the contact table.
+            
+            This is an optional attribute; if an implementation chooses not to
+            provide it, it should throw a CORBA::NO_IMPLEMENT exception.
+        */
+        readonly attribute seq_node_ref_t contacts;
+        
+        /**
+            The entries in this node's data table.
+
+            This is an optional attribute; if an implementation chooses not to
+            provide it, it should throw a CORBA::NO_IMPLEMENT exception.
+        */
+        readonly attribute seq_entry_t data;
+
+    
+    }; // interface Node
+
+
+    /**
+        Broker objects perform operations on the distributed hash table on
+        behalf of a client.
+    */
+    interface Broker {
+
+        /**
+            Stores a value at the given hash table index. If the value is
+            already stored at this index, it will be overwritten. After the
+            lifetime has expired, the entry is erased from the hash table.
+            
+            @param index The hash table index to store the value at.
+            @param value The value to be stored.
+            @param lifetime The lifetime of the entry in milliseconds
+        */
+        void store (
+            in id_t       index,
+            in any        value,
+            in lifetime_t lifetime
+        );
+
+        /**
+            Erases the value at the given hash table index, if it existed.
+            
+            @param index The hash table index to erase the value at.
+            @param value The value to be erased.
+            
+        */
+        void erase(
+            in id_t index,
+            in any  value
+        );
+        
+        /**
+            Retrieves all the values at the given hash table index.
+            
+            @param index The hash table index to retrieve values from.
+            @return seq_any_t
+        */        
+        seq_any_t retrieve(
+            in id_t index
+        );
+                
+    }; // interface Broker
+
+}; // module Kademlia
